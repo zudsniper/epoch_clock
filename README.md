@@ -9,7 +9,7 @@
 </div>
 
 
-# Tech Stack
+## Tech Stack
 - Rust
 - Actix-web
 - Image

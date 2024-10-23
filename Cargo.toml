@@ -1,0 +1,10 @@
+[package]
+name = "epoch_clock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+actix-web = "4"
+image = "0.24"
+rusttype = "0.9"

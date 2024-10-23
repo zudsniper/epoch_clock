@@ -1,0 +1,4 @@
+[env]
+APP_ENV = "development"
+HOST = "localhost"
+PORT = "8055"

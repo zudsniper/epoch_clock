@@ -1,4 +1,10 @@
 /target
 
+# cargo cache
+.cargo/*
+
+# allow config example
+!.cargo/config.example.toml
+
 # for libraries, do not track
 /Cargo.lock

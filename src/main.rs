@@ -146,87 +146,92 @@ fn generate_image(text: String, width: u32) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     let font_data = include_bytes!("../fonts/Courier_New.ttf") as &[u8];
     let font = Font::try_from_bytes(font_data).unwrap();
 
-    // Define the scale of the font based on image size
-    let scale = Scale::uniform(height as f32 * 0.8);
+    // Define margins (5% of the image dimensions)
+    let margin_x = width as f32 * 0.05;
+    let margin_y = height as f32 * 0.05;
 
-    // Layout the glyphs
+    // Calculate drawable area
+    let drawable_width = width as f32 - 2.0 * margin_x;
+    let drawable_height = height as f32 - 2.0 * margin_y;
+
+    // Define the scale of the font based on drawable area
+    let scale = Scale::uniform(drawable_height * 0.8); // Use 80% of drawable height
+
+    // Get font metrics for proper alignment
+    let v_metrics = font.v_metrics(scale);
+    let ascent = v_metrics.ascent;
+
+    // Layout the glyphs at the origin
     let glyphs: Vec<_> = font
-        .layout(&text, scale, rusttype::point(0.0, 0.0))
+        .layout(&text, scale, rusttype::point(0.0, ascent))
         .collect();
 
     // Calculate the bounding box of the glyphs
-    let mut min_x = std::f32::MAX;
-    let mut max_x = std::f32::MIN;
-    let mut min_y = std::f32::MAX;
-    let mut max_y = std::f32::MIN;
+    let glyphs_bbox = {
+        let min_x = glyphs
+            .first()
+            .and_then(|g| g.pixel_bounding_box().map(|bb| bb.min.x as f32))
+            .unwrap_or(0.0);
+        let max_x = glyphs
+            .last()
+            .and_then(|g| g.pixel_bounding_box().map(|bb| bb.max.x as f32))
+            .unwrap_or(0.0);
+        let min_y = glyphs
+            .iter()
+            .filter_map(|g| g.pixel_bounding_box().map(|bb| bb.min.y as f32))
+            .fold(std::f32::MAX, |a, b| a.min(b));
+        let max_y = glyphs
+            .iter()
+            .filter_map(|g| g.pixel_bounding_box().map(|bb| bb.max.y as f32))
+            .fold(std::f32::MIN, |a, b| a.max(b));
 
-    for glyph in &glyphs {
-        if let Some(bb) = glyph.pixel_bounding_box() {
-            if (bb.min.x as f32) < min_x {
-                min_x = bb.min.x as f32;
-            }
-            if (bb.max.x as f32) > max_x {
-                max_x = bb.max.x as f32;
-            }
-            if (bb.min.y as f32) < min_y {
-                min_y = bb.min.y as f32;
-            }
-            if (bb.max.y as f32) > max_y {
-                max_y = bb.max.y as f32;
-            }
+        rusttype::Rect {
+            min: rusttype::point(min_x, min_y),
+            max: rusttype::point(max_x, max_y),
         }
-    }
+    };
 
-    // Handle the case where there are no glyphs or bounding boxes
-    if min_x == std::f32::MAX {
-        min_x = 0.0;
-        max_x = 0.0;
-    }
-    if min_y == std::f32::MAX {
-        min_y = 0.0;
-        max_y = 0.0;
-    }
+    let text_width = glyphs_bbox.max.x - glyphs_bbox.min.x;
+    let text_height = glyphs_bbox.max.y - glyphs_bbox.min.y;
 
-    let text_width = max_x - min_x;
-    let text_height = max_y - min_y;
+    // Calculate offsets to center the text within the drawable area
+    let x_offset = margin_x + (drawable_width - text_width) / 2.0 - glyphs_bbox.min.x;
+    let y_offset = margin_y + (drawable_height - text_height) / 2.0 - glyphs_bbox.min.y;
 
-    // Calculate offsets to center the text
-    let x_offset = (width as f32 - text_width) / 2.0 - min_x;
-    let y_offset = (height as f32 - text_height) / 2.0 - min_y;
+    // Adjust the glyph positions by applying the offsets during layout
+    let glyphs: Vec<_> = font
+        .layout(&text, scale, rusttype::point(x_offset, y_offset + ascent))
+        .collect();
 
     // Draw the glyphs onto the image
     for glyph in &glyphs {
-        let positioned_glyph = glyph
-            .clone()
-            .into_unpositioned()
-            .positioned(rusttype::point(
-                glyph.position().x + x_offset,
-                glyph.position().y + y_offset,
-            ));
+        if let Some(bb) = glyph.pixel_bounding_box() {
+            glyph.draw(|x, y, v| {
+                let px = x as i32 + bb.min.x;
+                let py = y as i32 + bb.min.y;
 
-        if let Some(bb) = positioned_glyph.pixel_bounding_box() {
-            positioned_glyph.draw(|x, y, v| {
-                let px = x + bb.min.x as u32;
-                let py = y + bb.min.y as u32;
+                if px >= 0 && py >= 0 {
+                    let px = px as u32;
+                    let py = py as u32;
+                    if px < width && py < height {
+                        let pixel = img.get_pixel_mut(px, py);
 
-                if px < width && py < height {
-                    let pixel = img.get_pixel_mut(px, py);
+                        // Blend the pixel values
+                        let alpha = (v * 255.0) as u8;
+                        let fg = [0u8, 0u8, 0u8, alpha]; // Black color with variable alpha
 
-                    // Blend the pixel values
-                    let alpha = (v * 255.0) as u8;
-                    let fg = [0u8, 0u8, 0u8, alpha]; // Black color with variable alpha
-
-                    let bg = pixel.0;
-                    let inv_alpha = 255 - alpha;
-                    pixel.0 = [
-                        ((fg[0] as u16 * alpha as u16 + bg[0] as u16 * inv_alpha as u16) / 255)
-                            as u8,
-                        ((fg[1] as u16 * alpha as u16 + bg[1] as u16 * inv_alpha as u16) / 255)
-                            as u8,
-                        ((fg[2] as u16 * alpha as u16 + bg[2] as u16 * inv_alpha as u16) / 255)
-                            as u8,
-                        255,
-                    ];
+                        let bg = pixel.0;
+                        let inv_alpha = 255 - alpha;
+                        pixel.0 = [
+                            ((fg[0] as u16 * alpha as u16 + bg[0] as u16 * inv_alpha as u16) / 255)
+                                as u8,
+                            ((fg[1] as u16 * alpha as u16 + bg[1] as u16 * inv_alpha as u16) / 255)
+                                as u8,
+                            ((fg[2] as u16 * alpha as u16 + bg[2] as u16 * inv_alpha as u16) / 255)
+                                as u8,
+                            255,
+                        ];
+                    }
                 }
             });
         }

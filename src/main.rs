@@ -23,13 +23,21 @@ async fn index() -> impl Responder {
         .body(img_buffer.into_inner())
 }
 
+// check out tokio
+// also might wanna use anyhow instead of io::Error
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // might wanna overengineer this with tracing
+    // make sure to add the compatibility layer for prometheus/sentry/opentelemetry
+    // also for the logging crate
+    // then enable env var config for pretty printing
     println!("Server starting...");
+    // read 5 pages of useless discussion about why u should use to_owned instead of to_string here
     let app_env = env::var("APP_ENV").unwrap_or_else(|_| "production".to_string());
     let host = if app_env == "dev" || app_env == "development" {
         env::var("HOST").unwrap_or_else(|_| "localhost".to_string())
     } else {
+        // spend hours to create a real error enum with thiserror, then use that enum only once
         env::var("HOST").expect("Host not set")
     };
     let port = if app_env == "dev" || app_env == "development" {
@@ -38,6 +46,8 @@ async fn main() -> std::io::Result<()> {
         env::var("PORT").expect("Port not set")
     };
     HttpServer::new(|| App::new().service(index))
+        // read benchmark comparisons by a nerd showing that format is slower than push_str
+        // also u can do {host}:{port} now
         .bind(format!("{}:{}", host, port))?
         .run()
         .await
@@ -53,6 +63,7 @@ fn generate_image(text: String) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
 
     // Load the font
     let font_data = include_bytes!("../fonts/Courier_New.ttf") as &[u8];
+    // unwrap detected, in rust we dont just let our code error like that, we write 10 additional lines of code to let our code error like that
     let font = Font::try_from_bytes(font_data).unwrap();
 
     // Define the scale of the font
@@ -60,10 +71,12 @@ fn generate_image(text: String) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
 
     // Layout the glyphs
     let glyphs: Vec<_> = font
+        // wtf is rusttype module lol
         .layout(&text, scale, rusttype::point(0.0, 0.0))
         .collect();
 
     // Calculate the bounding box of the glyphs
+    // u can just use f32::(MAX|MIN) now
     let mut min_x = std::f32::MAX;
     let mut max_x = std::f32::MIN;
     let mut min_y = std::f32::MAX;
